@@ -1,0 +1,40 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build with Maven
+        run: mvn -B clean package
+
+      - name: Create macOS DMG with jpackage
+        run: |
+          mkdir -p output
+          jpackage \
+            --type dmg \
+            --name "ScriptWeaver" \
+            --input target \
+            --main-jar ScriptWeaverMAC-1.0-SNAPSHOT.jar \
+            --main-class org.example.MainFrame \
+            --dest output
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScriptWeaver-macOS
+          path: output/*.dmg
