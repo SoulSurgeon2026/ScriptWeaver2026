@@ -47,14 +47,9 @@ public class MainFrame extends JFrame {
     };
 
     static final String[][] PRESET_COLORS = {
-            {"黑", "#000000"},
-            {"红", "#e11d48"},
-            {"橙", "#ea580c"},
-            {"黄", "#ca8a04"},
-            {"绿", "#16a34a"},
-            {"蓝", "#2563eb"},
-            {"紫", "#7c3aed"},
-            {"灰", "#6b7280"},
+            {"黑", "#000000"}, {"红", "#e11d48"}, {"橙", "#ea580c"},
+            {"黄", "#ca8a04"}, {"绿", "#16a34a"}, {"蓝", "#2563eb"},
+            {"紫", "#7c3aed"}, {"灰", "#6b7280"},
     };
 
     // 文件列表
@@ -70,7 +65,7 @@ public class MainFrame extends JFrame {
     private JComboBox<String> eastFontCombo, eastSizeCombo;
     private JCheckBox cbArabic, cbHebrew, cbRussian;
     private JComboBox<String> csFontCombo, csSizeCombo;
-    private JCheckBox cbEnglish, cbSpanish, cbGreek;
+    private JCheckBox cbEnglish, cbSpanish, cbGreek, cbDigit;
     private JComboBox<String> asciiFontCombo, asciiSizeCombo;
 
     // 词汇页
@@ -218,7 +213,7 @@ public class MainFrame extends JFrame {
 
         inner.addTab("东亚（中日韩）", buildEastAsiaPanel());
         inner.addTab("复杂文种（阿/希/俄）", buildCsPanel());
-        inner.addTab("西文（英/西/希）", buildAsciiPanel());
+        inner.addTab("西文（英/西/希/数字）", buildAsciiPanel());
 
         page.add(inner, BorderLayout.CENTER);
         return page;
@@ -358,7 +353,8 @@ public class MainFrame extends JFrame {
         cbEnglish = new JCheckBox("英语");
         cbSpanish = new JCheckBox("西班牙语");
         cbGreek = new JCheckBox("希腊语");
-        for (JCheckBox cb : new JCheckBox[]{cbEnglish, cbSpanish, cbGreek}) {
+        cbDigit = new JCheckBox("数字");
+        for (JCheckBox cb : new JCheckBox[]{cbEnglish, cbSpanish, cbGreek, cbDigit}) {
             cb.setBackground(CARD);
             cb.setFont(new Font("Microsoft YaHei UI", Font.PLAIN, 12));
             left.add(cb);
@@ -629,22 +625,18 @@ public class MainFrame extends JFrame {
             return;
         }
 
-        // 收集语言页设置
         List<String[]> langConfigs = new ArrayList<>();
-        // 东亚
         if (cbChinese.isSelected())  langConfigs.add(new String[]{"eastAsia", (String) eastFontCombo.getSelectedItem(), (String) eastSizeCombo.getSelectedItem()});
         if (cbJapanese.isSelected()) langConfigs.add(new String[]{"eastAsia", (String) eastFontCombo.getSelectedItem(), (String) eastSizeCombo.getSelectedItem()});
         if (cbKorean.isSelected())   langConfigs.add(new String[]{"eastAsia", (String) eastFontCombo.getSelectedItem(), (String) eastSizeCombo.getSelectedItem()});
-        // 复杂文种
         if (cbArabic.isSelected())   langConfigs.add(new String[]{"cs", (String) csFontCombo.getSelectedItem(), (String) csSizeCombo.getSelectedItem()});
         if (cbHebrew.isSelected())   langConfigs.add(new String[]{"cs", (String) csFontCombo.getSelectedItem(), (String) csSizeCombo.getSelectedItem()});
         if (cbRussian.isSelected())  langConfigs.add(new String[]{"cs", (String) csFontCombo.getSelectedItem(), (String) csSizeCombo.getSelectedItem()});
-        // 西文
         if (cbEnglish.isSelected())  langConfigs.add(new String[]{"ascii", (String) asciiFontCombo.getSelectedItem(), (String) asciiSizeCombo.getSelectedItem()});
         if (cbSpanish.isSelected())  langConfigs.add(new String[]{"ascii", (String) asciiFontCombo.getSelectedItem(), (String) asciiSizeCombo.getSelectedItem()});
         if (cbGreek.isSelected())    langConfigs.add(new String[]{"ascii", (String) asciiFontCombo.getSelectedItem(), (String) asciiSizeCombo.getSelectedItem()});
+        if (cbDigit.isSelected())    langConfigs.add(new String[]{"ascii", (String) asciiFontCombo.getSelectedItem(), (String) asciiSizeCombo.getSelectedItem()});
 
-        // 收集词汇页设置
         String word = wordField.getText().trim();
         boolean hasWord = !word.isEmpty() && hasAnyAttrChecked();
 
@@ -654,7 +646,6 @@ public class MainFrame extends JFrame {
             return;
         }
 
-        // 进度条
         JProgressBar progress = new JProgressBar(0, files.size());
         progress.setStringPainted(true);
         JDialog progressDialog = new JDialog(this, "处理中", false);
@@ -717,17 +708,16 @@ public class MainFrame extends JFrame {
 
             // ---- 第一步：语言页设置（按语言拆分 run）----
             if (!langConfigs.isEmpty()) {
-                java.util.List<org.apache.poi.xwpf.usermodel.XWPFParagraph> allParas =
+                List<org.apache.poi.xwpf.usermodel.XWPFParagraph> allParas =
                         FontChanger.allParagraphs(doc);
 
                 for (org.apache.poi.xwpf.usermodel.XWPFParagraph para : allParas) {
-                    java.util.List<org.apache.poi.xwpf.usermodel.XWPFRun> runs =
-                            new java.util.ArrayList<>(para.getRuns());
+                    List<org.apache.poi.xwpf.usermodel.XWPFRun> runs =
+                            new ArrayList<>(para.getRuns());
                     for (org.apache.poi.xwpf.usermodel.XWPFRun run : runs) {
                         String text = run.text();
                         if (text == null || text.isEmpty()) continue;
 
-                        // 先看这个 run 有没有命中任何目标语言
                         boolean hitAny = false;
                         for (int i = 0; i < text.length() && !hitAny; i++) {
                             char c = text.charAt(i);
@@ -735,26 +725,23 @@ public class MainFrame extends JFrame {
                                 String attr = cfg[0];
                                 if (attr.equals("eastAsia") && FontChanger.isCJK(c)) { hitAny = true; break; }
                                 if (attr.equals("cs") && (FontChanger.isArabic(c) || FontChanger.isHebrew(c) || FontChanger.isCyrillic(c))) { hitAny = true; break; }
-                                if (attr.equals("ascii") && (FontChanger.isLatin(c) || FontChanger.isGreek(c))) { hitAny = true; break; }
+                                if (attr.equals("ascii") && (FontChanger.isLatin(c) || FontChanger.isGreek(c) || FontChanger.isDigit(c))) { hitAny = true; break; }
                             }
                         }
                         if (!hitAny) continue;
 
-                        // 拆分 run
-                        java.util.List<org.apache.poi.xwpf.usermodel.XWPFRun> segments;
+                        List<org.apache.poi.xwpf.usermodel.XWPFRun> segments;
                         try {
                             segments = FontChanger.splitRunByLanguage(run, para, langConfigs);
                         } catch (Exception ex) {
-                            segments = new java.util.ArrayList<>();
+                            segments = new ArrayList<>();
                             segments.add(run);
                         }
 
-                        // 对每一小段分别设字体和字号
                         for (org.apache.poi.xwpf.usermodel.XWPFRun segRun : segments) {
                             String segText = segRun.text();
                             if (segText == null || segText.isEmpty()) continue;
 
-                            // 找出这一小段属于哪一类
                             String matchedAttr = null;
                             String matchedFont = null;
                             int matchedSize = 12;
@@ -766,7 +753,7 @@ public class MainFrame extends JFrame {
                                     boolean hit = false;
                                     if (attr.equals("eastAsia") && FontChanger.isCJK(c)) hit = true;
                                     else if (attr.equals("cs") && (FontChanger.isArabic(c) || FontChanger.isHebrew(c) || FontChanger.isCyrillic(c))) hit = true;
-                                    else if (attr.equals("ascii") && (FontChanger.isLatin(c) || FontChanger.isGreek(c))) hit = true;
+                                    else if (attr.equals("ascii") && (FontChanger.isLatin(c) || FontChanger.isGreek(c) || FontChanger.isDigit(c))) hit = true;
                                     if (hit) {
                                         matchedAttr = attr;
                                         matchedFont = cfg[1];
@@ -792,7 +779,6 @@ public class MainFrame extends JFrame {
 
             // ---- 第二步：词汇页设置 ----
             if (hasWord) {
-                // 先简单实现：只处理完全在单个 run 里的词，跨 run 暂不处理
                 String mode = rbExact.isSelected() ? "exact" : rbContains.isSelected() ? "contains" : "regex";
                 List<org.apache.poi.xwpf.usermodel.XWPFRun> runs = FontChanger.allRuns(doc);
                 for (org.apache.poi.xwpf.usermodel.XWPFRun run : runs) {
@@ -807,14 +793,14 @@ public class MainFrame extends JFrame {
             }
 
             // ---- 保存 ----
-            java.io.File src = new java.io.File(path);
+            File src = new File(path);
             String baseName = src.getName().replaceAll("\\.docx$", "");
-            java.io.File outDirFile = outputDir.isEmpty() ? src.getParentFile() : new java.io.File(outputDir);
-            java.io.File outFile = new java.io.File(outDirFile, baseName + "_已修改.docx");
+            File outDirFile = outputDir.isEmpty() ? src.getParentFile() : new File(outputDir);
+            File outFile = new File(outDirFile, baseName + "_已修改.docx");
 
             int n = 1;
             while (outFile.exists()) {
-                outFile = new java.io.File(outDirFile, baseName + "_已修改_" + n + ".docx");
+                outFile = new File(outDirFile, baseName + "_已修改_" + n + ".docx");
                 n++;
             }
 
