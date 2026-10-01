@@ -22,14 +22,28 @@ jobs:
       - name: Build with Maven
         run: mvn -B clean package
 
-      - name: Create macOS DMG with jpackage
+            - name: Create macOS DMG with jpackage
         run: |
+          echo "===== target 目录内容 ====="
+          ls -la target/
+
+          echo "===== 查找 jar 文件 ====="
+          JAR_FILE=$(find target -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
+          if [ -z "$JAR_FILE" ]; then
+            echo "错误：没有找到任何 jar 文件"
+            exit 1
+          fi
+          echo "找到 jar: $JAR_FILE"
+
+          JAR_NAME=$(basename "$JAR_FILE")
+          echo "jar 文件名: $JAR_NAME"
+
           mkdir -p output
           jpackage \
             --type dmg \
             --name "ScriptWeaver" \
             --input target \
-            --main-jar ScriptWeaverMAC-1.0-SNAPSHOT.jar \
+            --main-jar "$JAR_NAME" \
             --main-class org.example.MainFrame \
             --dest output
 
