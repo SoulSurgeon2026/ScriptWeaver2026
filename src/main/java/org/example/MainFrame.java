@@ -715,48 +715,78 @@ public class MainFrame extends JFrame {
 
             int count = 0;
 
-            // ---- 第一步：语言页设置 ----
+            // ---- 第一步：语言页设置（按语言拆分 run）----
             if (!langConfigs.isEmpty()) {
-                List<org.apache.poi.xwpf.usermodel.XWPFRun> runs = FontChanger.allRuns(doc);
-                for (org.apache.poi.xwpf.usermodel.XWPFRun run : runs) {
-                    String text = run.text();
-                    if (text == null || text.isEmpty()) continue;
+                java.util.List<org.apache.poi.xwpf.usermodel.XWPFParagraph> allParas =
+                        FontChanger.allParagraphs(doc);
 
-                    // 按字符判断命中了哪类通道
-                    java.util.Set<String> matchedAttrs = new java.util.LinkedHashSet<>();
-                    int chosenSize = 12;
+                for (org.apache.poi.xwpf.usermodel.XWPFParagraph para : allParas) {
+                    java.util.List<org.apache.poi.xwpf.usermodel.XWPFRun> runs =
+                            new java.util.ArrayList<>(para.getRuns());
+                    for (org.apache.poi.xwpf.usermodel.XWPFRun run : runs) {
+                        String text = run.text();
+                        if (text == null || text.isEmpty()) continue;
 
-                    for (int i = 0; i < text.length(); i++) {
-                        char c = text.charAt(i);
-                        for (String[] cfg : langConfigs) {
-                            String attr = cfg[0];
-                            boolean hit = false;
-                            if (attr.equals("eastAsia") && FontChanger.isCJK(c)) hit = true;
-                            else if (attr.equals("cs") && (FontChanger.isArabic(c) || FontChanger.isHebrew(c) || FontChanger.isCyrillic(c))) hit = true;
-                            else if (attr.equals("ascii") && (FontChanger.isLatin(c) || FontChanger.isGreek(c))) hit = true;
-                            if (hit) {
-                                matchedAttrs.add(attr);
-                                try { chosenSize = Integer.parseInt(cfg[2]); } catch (Exception ignored) {}
-                                break;
+                        // 先看这个 run 有没有命中任何目标语言
+                        boolean hitAny = false;
+                        for (int i = 0; i < text.length() && !hitAny; i++) {
+                            char c = text.charAt(i);
+                            for (String[] cfg : langConfigs) {
+                                String attr = cfg[0];
+                                if (attr.equals("eastAsia") && FontChanger.isCJK(c)) { hitAny = true; break; }
+                                if (attr.equals("cs") && (FontChanger.isArabic(c) || FontChanger.isHebrew(c) || FontChanger.isCyrillic(c))) { hitAny = true; break; }
+                                if (attr.equals("ascii") && (FontChanger.isLatin(c) || FontChanger.isGreek(c))) { hitAny = true; break; }
                             }
                         }
-                    }
+                        if (!hitAny) continue;
 
-                    if (matchedAttrs.isEmpty()) continue;
+                        // 拆分 run
+                        java.util.List<org.apache.poi.xwpf.usermodel.XWPFRun> segments;
+                        try {
+                            segments = FontChanger.splitRunByLanguage(run, para, langConfigs);
+                        } catch (Exception ex) {
+                            segments = new java.util.ArrayList<>();
+                            segments.add(run);
+                        }
 
-                    for (String[] cfg : langConfigs) {
-                        String attr = cfg[0];
-                        String font = cfg[1];
-                        if (matchedAttrs.contains(attr)) {
-                            if (attr.equals("eastAsia")) FontChanger.setEastAsiaFont(run, font);
-                            else if (attr.equals("cs")) FontChanger.setCsFont(run, font);
-                            else if (attr.equals("ascii")) FontChanger.setAsciiFont(run, font);
+                        // 对每一小段分别设字体和字号
+                        for (org.apache.poi.xwpf.usermodel.XWPFRun segRun : segments) {
+                            String segText = segRun.text();
+                            if (segText == null || segText.isEmpty()) continue;
+
+                            // 找出这一小段属于哪一类
+                            String matchedAttr = null;
+                            String matchedFont = null;
+                            int matchedSize = 12;
+
+                            for (int i = 0; i < segText.length(); i++) {
+                                char c = segText.charAt(i);
+                                for (String[] cfg : langConfigs) {
+                                    String attr = cfg[0];
+                                    boolean hit = false;
+                                    if (attr.equals("eastAsia") && FontChanger.isCJK(c)) hit = true;
+                                    else if (attr.equals("cs") && (FontChanger.isArabic(c) || FontChanger.isHebrew(c) || FontChanger.isCyrillic(c))) hit = true;
+                                    else if (attr.equals("ascii") && (FontChanger.isLatin(c) || FontChanger.isGreek(c))) hit = true;
+                                    if (hit) {
+                                        matchedAttr = attr;
+                                        matchedFont = cfg[1];
+                                        try { matchedSize = Integer.parseInt(cfg[2]); } catch (Exception ignored) {}
+                                        break;
+                                    }
+                                }
+                                if (matchedAttr != null) break;
+                            }
+
+                            if (matchedAttr == null) continue;
+
+                            if (matchedAttr.equals("eastAsia")) FontChanger.setEastAsiaFont(segRun, matchedFont);
+                            else if (matchedAttr.equals("cs")) FontChanger.setCsFont(segRun, matchedFont);
+                            else if (matchedAttr.equals("ascii")) FontChanger.setAsciiFont(segRun, matchedFont);
+
+                            segRun.setFontSize(matchedSize);
+                            count++;
                         }
                     }
-
-                    // 字号
-                    run.setFontSize(chosenSize);
-                    count++;
                 }
             }
 

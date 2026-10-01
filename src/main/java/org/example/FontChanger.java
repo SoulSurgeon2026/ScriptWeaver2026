@@ -66,6 +66,31 @@ public class FontChanger {
         }
     }
 
+    /** 收集所有段落（含表格），用于按段落遍历拆分 run */
+    public static List<XWPFParagraph> allParagraphs(XWPFDocument doc) {
+        List<XWPFParagraph> list = new ArrayList<>();
+        for (XWPFParagraph p : doc.getParagraphs()) {
+            list.add(p);
+        }
+        for (XWPFTable table : doc.getTables()) {
+            collectTableParagraphs(table, list);
+        }
+        return list;
+    }
+
+    private static void collectTableParagraphs(XWPFTable table, List<XWPFParagraph> list) {
+        for (XWPFTableRow row : table.getRows()) {
+            for (XWPFTableCell cell : row.getTableCells()) {
+                for (XWPFParagraph p : cell.getParagraphs()) {
+                    list.add(p);
+                }
+                for (XWPFTable nested : cell.getTables()) {
+                    collectTableParagraphs(nested, list);
+                }
+            }
+        }
+    }
+
     // ---------- 只改东亚字体 ----------
     public static void setEastAsiaFont(XWPFRun run, String fontName) {
         setFontAttr(run, "eastAsia", fontName);
@@ -115,5 +140,117 @@ public class FontChanger {
             child = child.getNextSibling();
         }
         return null;
+    }
+
+    // ================== 按语言拆分 run ==================
+
+    /**
+     * 把一个 run 按“语言边界”拆成多个小 run。
+     * langKeys: 每个元素是 [属性名("eastAsia"/"cs"/"ascii"), 字体名, 字号字符串]
+     * 返回拆分后的 run 列表（可能只有一个，就是原 run）。
+     */
+    public static List<XWPFRun> splitRunByLanguage(
+            XWPFRun run, XWPFParagraph para, List<String[]> langKeys) throws Exception {
+
+        String text = run.text();
+        if (text == null || text.isEmpty()) {
+            List<XWPFRun> single = new ArrayList<>();
+            single.add(run);
+            return single;
+        }
+
+        // 逐字符判断 key。key = "属性名|字号"
+        List<int[]> boundaries = new ArrayList<>();
+        List<String> keys = new ArrayList<>();
+
+        String curKey = null;
+        int curStart = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            String key = null;
+            for (String[] lk : langKeys) {
+                String attr = lk[0];
+                String size = lk[2];
+                boolean hit = false;
+                if (attr.equals("eastAsia") && isCJK(c)) hit = true;
+                else if (attr.equals("cs") && (isArabic(c) || isHebrew(c) || isCyrillic(c))) hit = true;
+                else if (attr.equals("ascii") && (isLatin(c) || isGreek(c))) hit = true;
+                if (hit) {
+                    key = attr + "|" + size;
+                    break;
+                }
+            }
+            if (curKey == null) {
+                curKey = key;
+                curStart = 0;
+            } else if (!safeEquals(key, curKey)) {
+                boundaries.add(new int[]{curStart, i});
+                keys.add(curKey);
+                curKey = key;
+                curStart = i;
+            }
+        }
+        if (curKey != null) {
+            boundaries.add(new int[]{curStart, text.length()});
+            keys.add(curKey);
+        }
+
+        // 不用拆
+        if (boundaries.size() <= 1) {
+            List<XWPFRun> single = new ArrayList<>();
+            single.add(run);
+            return single;
+        }
+
+        // 需要拆：用 para.createRun() 建新 run，再把它移到正确位置
+        List<XWPFRun> result = new ArrayList<>();
+
+        // 先把原 run 设成第一段
+        setRunText(run, text.substring(boundaries.get(0)[0], boundaries.get(0)[1]));
+        result.add(run);
+
+        for (int idx = 1; idx < boundaries.size(); idx++) {
+            int s = boundaries.get(idx)[0];
+            int e = boundaries.get(idx)[1];
+            String segText = text.substring(s, e);
+
+            // 在段落里新建一个 run
+            XWPFRun newRun = para.createRun();
+            setRunText(newRun, segText);
+
+            // 把新 run 的 XML 节点从段落末尾移到前一个 run 后面
+            Node newNode = newRun.getCTR().getDomNode();
+            Node prevNode = result.get(result.size() - 1).getCTR().getDomNode();
+            newNode.getParentNode().removeChild(newNode);
+            prevNode.getParentNode().insertBefore(newNode, prevNode.getNextSibling());
+
+            result.add(newRun);
+        }
+        return result;
+    }
+
+    private static boolean safeEquals(String a, String b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return a.equals(b);
+    }
+
+    /** 把 run 里的文本全部替换成 text */
+    public static void setRunText(XWPFRun run, String text) {
+        Node rNode = run.getCTR().getDomNode();
+        // 删除所有 w:t
+        org.w3c.dom.NodeList tList = ((org.w3c.dom.Element) rNode)
+                .getElementsByTagNameNS(
+                        "http://schemas.openxmlformats.org/wordprocessingml/2006/main", "t");
+        for (int i = tList.getLength() - 1; i >= 0; i--) {
+            Node t = tList.item(i);
+            t.getParentNode().removeChild(t);
+        }
+        // 新增一个 w:t
+        org.w3c.dom.Element t = rNode.getOwnerDocument().createElementNS(
+                "http://schemas.openxmlformats.org/wordprocessingml/2006/main", "w:t");
+        t.setAttributeNS("http://www.w3.org/XML/1998/namespace", "xml:space", "preserve");
+        t.setTextContent(text);
+        rNode.appendChild(t);
     }
 }
